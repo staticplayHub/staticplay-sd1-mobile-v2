@@ -53,7 +53,7 @@ APK output path:
 `android/app/build/outputs/apk/release/app-release.apk`
 
 Notes:
-- This v2 build uses package id `com.anonymous.staticplaysd1mobile.v2`, so v1 can stay installed.
+- This v3 build uses package id `com.anonymous.staticplaysd1mobile.v3`, so v1/v2 can stay installed.
 - Some setup buttons can take longer than expected (especially inspect actions).
 - Generation works offline but is still being optimized for speed.
 - Website: `https://staticplay.co.uk`
@@ -62,7 +62,7 @@ Notes:
 
 1) Put the SD1.5 ONNX pack zip at the app external directory as:
 
-`/storage/emulated/0/Android/data/com.anonymous.staticplaysd1mobile/files/sd15-onnx-pack.zip`
+`/storage/emulated/0/Android/data/com.anonymous.staticplaysd1mobile.v3/files/sd15-onnx-pack.zip`
 
 2) In the app:
    - (Optional) `Show app external pack path` (for sanity check)
@@ -84,10 +84,11 @@ Notes:
 4) Run inference via a native runtime with NNAPI; fall back to CPU if NNAPI can't compile a node.
 5) Ship the ONNX files in-app (or as offline downloadable packs).
 
-## V2 notes (2026-02-12)
+## V3 notes (2026-02-12)
 
-- This branch installs as a separate app id (`com.anonymous.staticplaysd1mobile.v2`) so v1 stays on device.
+- This branch installs as a separate app id (`com.anonymous.staticplaysd1mobile.v3`) so v1/v2 stay on device.
 - Guided mode is enabled to show one button at a time for easier setup flow.
+- Added `Auto-pick fastest backend` which benchmarks both NNAPI and CPU and selects the faster one for this device.
 - Some actions can take longer than expected, especially:
   - `Inspect pack UNet`
   - `Inspect pack text_encoder`

@@ -89,7 +89,7 @@ android {
 
     namespace 'com.anonymous.staticplaysd1mobile'
     defaultConfig {
-        applicationId 'com.anonymous.staticplaysd1mobile.v2'
+        applicationId 'com.anonymous.staticplaysd1mobile.v3'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

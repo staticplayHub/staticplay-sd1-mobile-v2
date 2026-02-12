@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "staticplay-sd1-mobile-v2",
-    "slug": "staticplay-sd1-mobile-v2",
+    "name": "staticplay-sd1-mobile-v3",
+    "slug": "staticplay-sd1-mobile-v3",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -24,7 +24,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.staticplaysd1mobile.v2"
+      "package": "com.anonymous.staticplaysd1mobile.v3"
     },
     "web": {
       "favicon": "./assets/favicon.png"

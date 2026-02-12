@@ -8,9 +8,15 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { createClipTokenizer } from './clipTokenizer';
 
-const BUILD_ID = '2026-02-12-v2-speed-exp-002';
+const BUILD_ID = '2026-02-12-v3-gpu-pivot-001';
 const QUICK_STEPS = 4;
+const PREVIEW_STEPS = 6;
+const LCM_STEPS = 4;
+const LCM_GUIDANCE = 1.8;
+const TURBO_STEPS = 10;
 const QUALITY_STEPS = 20;
+const BENCH_ITERS = 8;
+const AUTO_BENCH_ITERS = 3;
 
 const GUIDE_STEPS = [
   { key: 'tapLaunch', label: 'Tap to confirm launch' },
@@ -18,10 +24,14 @@ const GUIDE_STEPS = [
   { key: 'unzipExternal', label: 'Unzip SD15 pack from external' },
   { key: 'loadTokenizer', label: 'Load tokenizer (bundled)' },
   { key: 'testNative', label: 'Test native ONNX (NNAPI -> CPU)' },
+  { key: 'benchmarkUnet', label: `Benchmark UNet (${BENCH_ITERS} iters)` },
   { key: 'inspectUnet', label: 'Inspect pack UNet' },
   { key: 'inspectText', label: 'Inspect pack text_encoder' },
   { key: 'inspectVae', label: 'Inspect pack vae_decoder' },
   { key: 'generateQuick', label: `Generate 512x512 (quick ${QUICK_STEPS})` },
+  { key: 'generatePreview', label: `Generate 384x384 (preview ${PREVIEW_STEPS})` },
+  { key: 'generateLcm', label: `Generate 512x512 (LCM ${LCM_STEPS})` },
+  { key: 'generateTurbo', label: `Generate 512x512 (turbo ${TURBO_STEPS})` },
   { key: 'generateQuality', label: `Generate 512x512 (quality ${QUALITY_STEPS})` },
   { key: 'backendToggle', label: 'Backend: NNAPI / CPU' },
   { key: 'importOnnx', label: 'Import ONNX files (offline)' },
@@ -47,6 +57,8 @@ export default function App() {
   const [prompt, setPrompt] = useState<string>('A photo of a lion in the wild, ultra realistic');
   const [tokenizerReady, setTokenizerReady] = useState(false);
   const [preferNnapi, setPreferNnapi] = useState(true);
+  const [strictNnapi, setStrictNnapi] = useState(false);
+  const [backendDecision, setBackendDecision] = useState<string>('not tested');
   const [guidedMode, setGuidedMode] = useState(true);
   const [guideIndex, setGuideIndex] = useState(0);
 
@@ -101,7 +113,14 @@ export default function App() {
 
   const yieldToUi = async () => new Promise<void>((r) => setTimeout(r, 0));
 
-  const runGenerate = async (steps: number, forceCpu: boolean = false, lowMemoryMode: boolean = true) => {
+  const runGenerate = async (
+    steps: number,
+    forceCpu: boolean = false,
+    lowMemoryMode: boolean = true,
+    width: number = 512,
+    height: number = 512,
+    guidance: number = 7.5
+  ) => {
     setBusy(true);
     setErr('');
     setProvider('-');
@@ -118,8 +137,8 @@ export default function App() {
       const condIds = tokenizer.encode(prompt, 77);
       const uncondIds = tokenizer.encode('', 77);
 
-      const outPath = `file://${externalDir.replace(/\/+$/, '')}/sd_out_${Date.now()}.png`;
-      setStatus(`Generating... (${steps} steps)`);
+      const outPath = `file://${externalDir.replace(/\/+$/, '')}/sd_out_${Date.now()}_${width}x${height}.png`;
+      setStatus(`Generating... (${width}x${height}, ${steps} steps)`);
       await yieldToUi();
       const useNnapi = forceCpu ? false : preferNnapi;
       const runOnce = async (nnapi: boolean, lowMem: boolean) =>
@@ -128,10 +147,14 @@ export default function App() {
           condIds,
           uncondIds,
           steps,
-          guidance: 7.5,
+          guidance,
           seed: -1,
           outPath,
+          width,
+          height,
           preferNnapi: nnapi,
+          strictNnapi,
+          nnapiGpuBoost: true,
           lowMemoryMode: lowMem,
         });
 
@@ -140,7 +163,7 @@ export default function App() {
         res = await runOnce(useNnapi, lowMemoryMode);
       } catch (firstErr: any) {
         // In v2, if NNAPI path fails without killing process, retry CPU automatically.
-        if (useNnapi) {
+        if (useNnapi && !strictNnapi) {
           setStatus('NNAPI failed, retrying CPU...');
           await yieldToUi();
           res = await runOnce(false, true);
@@ -167,6 +190,78 @@ export default function App() {
     } catch (e: any) {
       const msg = String(e?.message ?? e ?? '').trim();
       setErr(msg || 'Generation failed (unknown error)');
+      setStatus('Error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const autoPickFastestBackend = async () => {
+    setBusy(true);
+    setErr('');
+    setProvider('-');
+    setOutput('-');
+    setStatus('Benchmarking NNAPI vs CPU...');
+    try {
+      if (!packDir) throw new Error('Pack not set. Tap "Unzip SD15 pack from external" first.');
+      const mod = (NativeModules as any)?.OrtNative;
+      if (!mod?.benchmarkUnet) throw new Error('Native module OrtNative.benchmarkUnet is not available (rebuild required).');
+
+      let nnapiRes: any = null;
+      let cpuRes: any = null;
+      let nnapiErr = '';
+      let cpuErr = '';
+
+      try {
+        nnapiRes = await mod.benchmarkUnet({
+          packDir,
+          iterations: AUTO_BENCH_ITERS,
+          width: 384,
+          height: 384,
+          preferNnapi: true,
+          strictNnapi: true,
+          nnapiGpuBoost: true,
+          batchedCfg: true,
+        });
+      } catch (e: any) {
+        nnapiErr = String(e?.message ?? e ?? '').trim();
+      }
+
+      try {
+        cpuRes = await mod.benchmarkUnet({
+          packDir,
+          iterations: AUTO_BENCH_ITERS,
+          width: 384,
+          height: 384,
+          preferNnapi: false,
+          strictNnapi: false,
+          nnapiGpuBoost: false,
+          batchedCfg: true,
+        });
+      } catch (e: any) {
+        cpuErr = String(e?.message ?? e ?? '').trim();
+      }
+
+      const nnapiMs = Number(nnapiRes?.msUnetAvg ?? Number.POSITIVE_INFINITY);
+      const cpuMs = Number(cpuRes?.msUnetAvg ?? Number.POSITIVE_INFINITY);
+      const nnapiValid = Number.isFinite(nnapiMs) && String(nnapiRes?.provider || '').toLowerCase() === 'nnapi';
+      const cpuValid = Number.isFinite(cpuMs);
+
+      let chosen: 'nnapi' | 'cpu' = 'cpu';
+      if (nnapiValid && !cpuValid) chosen = 'nnapi';
+      else if (nnapiValid && cpuValid) chosen = nnapiMs <= cpuMs * 0.9 ? 'nnapi' : 'cpu';
+
+      setPreferNnapi(chosen === 'nnapi');
+      setStrictNnapi(chosen === 'nnapi');
+
+      const decision = `chosen=${chosen}; nnapi=${nnapiValid ? `${nnapiMs.toFixed(1)}ms` : `fail(${nnapiErr || 'n/a'})`}; cpu=${cpuValid ? `${cpuMs.toFixed(1)}ms` : `fail(${cpuErr || 'n/a'})`}`;
+      setBackendDecision(decision);
+      setProvider(chosen);
+      setOutput(JSON.stringify({ decision, nnapiRes, cpuRes }));
+      setStatus('OK');
+    } catch (e: any) {
+      const msg = String(e?.message ?? e ?? '').trim();
+      setErr(msg || 'Auto backend benchmark failed');
       setStatus('Error');
     } finally {
       setBusy(false);
@@ -215,8 +310,9 @@ export default function App() {
             multiline
           />
           <Text style={[styles.value, { marginTop: 8, color: '#8aa0c4' }]}>
-            512x512 - quick {QUICK_STEPS} / quality {QUALITY_STEPS} - guidance 7.5
+            384 preview {PREVIEW_STEPS} - 512 quick {QUICK_STEPS} / LCM {LCM_STEPS} / turbo {TURBO_STEPS} / quality {QUALITY_STEPS}
           </Text>
+          <Text style={[styles.value, { marginTop: 6, color: '#8aa0c4' }]}>Backend decision: {backendDecision}</Text>
         </View>
 
         {showGuideButton('tapLaunch') ? (
@@ -233,16 +329,30 @@ export default function App() {
         ) : null}
 
         {showGuideButton('backendToggle') ? (
-          <Pressable
-            style={[styles.btn, busy ? styles.btnDisabled : null]}
-            disabled={busy}
-            onPress={() => {
-              setPreferNnapi((v) => !v);
-              completeGuideStep('backendToggle');
-            }}
-          >
-            <Text style={styles.btnText}>{preferNnapi ? 'Backend: NNAPI (experimental)' : 'Backend: CPU (safe)'}</Text>
-          </Pressable>
+          <>
+            <Pressable style={[styles.btn, busy ? styles.btnDisabled : null]} disabled={busy} onPress={autoPickFastestBackend}>
+              <Text style={styles.btnText}>{busy ? 'Working...' : `Auto-pick fastest backend (${AUTO_BENCH_ITERS} iters each)`}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.btn, busy ? styles.btnDisabled : null]}
+              disabled={busy}
+              onPress={() => {
+                setPreferNnapi((v) => !v);
+                completeGuideStep('backendToggle');
+              }}
+            >
+              <Text style={styles.btnText}>{preferNnapi ? 'Backend: NNAPI (experimental)' : 'Backend: CPU (safe)'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.btn, busy ? styles.btnDisabled : null]}
+              disabled={busy}
+              onPress={() => setStrictNnapi((v) => !v)}
+            >
+              <Text style={styles.btnText}>
+                {strictNnapi ? 'NNAPI strict: ON (no CPU fallback)' : 'NNAPI strict: OFF (allow CPU fallback)'}
+              </Text>
+            </Pressable>
+          </>
         ) : null}
 
         {showGuideButton('loadTokenizer') ? (
@@ -303,11 +413,50 @@ export default function App() {
             disabled={busy}
             onPress={async () => {
               // v2 quick path: NNAPI-first and less memory-constrained for speed.
-              await runGenerate(QUICK_STEPS, false, false);
+              await runGenerate(QUICK_STEPS, false, false, 512, 512, 7.5);
               completeGuideStep('generateQuick');
             }}
           >
             <Text style={styles.btnText}>{busy ? 'Working...' : `Generate 512x512 (quick ${QUICK_STEPS})`}</Text>
+          </Pressable>
+        ) : null}
+
+        {showGuideButton('generatePreview') ? (
+          <Pressable
+            style={[styles.btn, busy ? styles.btnDisabled : null]}
+            disabled={busy}
+            onPress={async () => {
+              await runGenerate(PREVIEW_STEPS, false, false, 384, 384, 7.5);
+              completeGuideStep('generatePreview');
+            }}
+          >
+            <Text style={styles.btnText}>{busy ? 'Working...' : `Generate 384x384 (preview ${PREVIEW_STEPS})`}</Text>
+          </Pressable>
+        ) : null}
+
+        {showGuideButton('generateLcm') ? (
+          <Pressable
+            style={[styles.btn, busy ? styles.btnDisabled : null]}
+            disabled={busy}
+            onPress={async () => {
+              await runGenerate(LCM_STEPS, false, false, 512, 512, LCM_GUIDANCE);
+              completeGuideStep('generateLcm');
+            }}
+          >
+            <Text style={styles.btnText}>{busy ? 'Working...' : `Generate 512x512 (LCM ${LCM_STEPS})`}</Text>
+          </Pressable>
+        ) : null}
+
+        {showGuideButton('generateTurbo') ? (
+          <Pressable
+            style={[styles.btn, busy ? styles.btnDisabled : null]}
+            disabled={busy}
+            onPress={async () => {
+              await runGenerate(TURBO_STEPS, false, false, 512, 512, 7.5);
+              completeGuideStep('generateTurbo');
+            }}
+          >
+            <Text style={styles.btnText}>{busy ? 'Working...' : `Generate 512x512 (turbo ${TURBO_STEPS})`}</Text>
           </Pressable>
         ) : null}
 
@@ -316,8 +465,8 @@ export default function App() {
             style={[styles.btn, busy ? styles.btnDisabled : null]}
             disabled={busy}
             onPress={async () => {
-              // v2 quality path: keep stable settings.
-              await runGenerate(QUALITY_STEPS, true, true);
+              // Quality path now NNAPI-first with low-memory enabled as a safety net.
+              await runGenerate(QUALITY_STEPS, false, true, 512, 512, 7.5);
               completeGuideStep('generateQuality');
             }}
           >
@@ -353,6 +502,46 @@ export default function App() {
             }}
           >
             <Text style={styles.btnText}>{busy ? 'Running...' : 'Test native ONNX (NNAPI -> CPU)'}</Text>
+          </Pressable>
+        ) : null}
+
+        {showGuideButton('benchmarkUnet') ? (
+          <Pressable
+            style={[styles.btn, busy ? styles.btnDisabled : null]}
+            disabled={busy}
+            onPress={async () => {
+              setBusy(true);
+              setErr('');
+              setProvider('-');
+              setOutput('-');
+              setStatus('Benchmarking UNet...');
+              try {
+                if (!packDir) throw new Error('Pack not set. Tap "Unzip SD15 pack from external" first.');
+                const mod = (NativeModules as any)?.OrtNative;
+                if (!mod?.benchmarkUnet) throw new Error('Native module OrtNative.benchmarkUnet is not available (rebuild required).');
+                const res = await mod.benchmarkUnet({
+                  packDir,
+                  iterations: BENCH_ITERS,
+                  width: 512,
+                  height: 512,
+                  preferNnapi,
+                  strictNnapi,
+                  nnapiGpuBoost: true,
+                  batchedCfg: true,
+                });
+                setProvider(String(res?.provider ?? 'unknown'));
+                setOutput(JSON.stringify(res));
+                setStatus('OK');
+              } catch (e: any) {
+                setErr(e?.message || String(e));
+                setStatus('Error');
+              } finally {
+                setBusy(false);
+                completeGuideStep('benchmarkUnet');
+              }
+            }}
+          >
+            <Text style={styles.btnText}>{busy ? 'Working...' : `Benchmark UNet (${BENCH_ITERS} iters)`}</Text>
           </Pressable>
         ) : null}
 
