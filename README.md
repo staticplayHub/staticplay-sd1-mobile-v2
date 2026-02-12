@@ -1,13 +1,13 @@
-# Staticplay SD1 Mobile (On-Device, Android)
+﻿# Staticplay SD1 Mobile (On-Device, Android)
 
 Goal: ship a **real offline** Android app (no servers, no cloud) that runs an SD1-class model **on-device** using **NNAPI** (via a native runtime).
 
-This repo currently includes a working offline SD1.5 ONNX “pack” runner (unzip + inspect + generate).
+This repo currently includes a working offline SD1.5 ONNX "pack" runner (unzip + inspect + generate).
 
 ## Key points (no surprises)
 
-- Use a **prebuild** / **native build** (Expo Go won’t cut it for native inference).
-- “Offline” means the **model files are on the phone** (bundled in the APK or copied into app storage).
+- Use a **prebuild** / **native build** (Expo Go won't cut it for native inference).
+- "Offline" means the **model files are on the phone** (bundled in the APK or copied into app storage).
 - ONNX Runtime is integrated via a tiny **Android native module** (no JSI auto-install).
 
 ## Run (Android)
@@ -27,7 +27,36 @@ cd /home/tiny/projects/staticplay-sd1-mobile/android
 NODE_ENV=production ./gradlew :app:installRelease
 ```
 
-Then press “Test native ONNX (NNAPI → CPU)” in the app.
+Then press "Test native ONNX (NNAPI -> CPU)" in the app.
+
+## Bundle With Expo (Windows, release APK)
+
+Use these commands from this project root.
+
+```powershell
+# 1) Install dependencies (once)
+npm install
+
+# 2) Regenerate native Android project if config/plugins changed
+npx expo prebuild --platform android --clean
+
+# 3) Build release APK
+cd android
+./gradlew.bat :app:assembleRelease
+
+# 4) Install to connected phone (USB debugging on)
+./gradlew.bat :app:installRelease
+```
+
+APK output path:
+
+`android/app/build/outputs/apk/release/app-release.apk`
+
+Notes:
+- This v2 build uses package id `com.anonymous.staticplaysd1mobile.v2`, so v1 can stay installed.
+- Some setup buttons can take longer than expected (especially inspect actions).
+- Generation works offline but is still being optimized for speed.
+- Website: `https://staticplay.co.uk`
 
 ## SD1.5 pack + generation (offline)
 
@@ -42,17 +71,17 @@ Then press “Test native ONNX (NNAPI → CPU)” in the app.
    - Toggle backend:
      - `Backend: NNAPI (experimental)` = fastest, can be unstable on some devices/drivers
      - `Backend: CPU (safe)` = slower, but avoids NNAPI driver issues
-   - `Generate 512×512 (quick 4)` to prove the end-to-end pipeline
-   - `Generate 512×512 (quality 20)` for higher quality (slower)
+   - `Generate 512x512 (quick 4)` to prove the end-to-end pipeline
+   - `Generate 512x512 (quality 20)` for higher quality (slower)
 
 3) Output images save to the same app external folder as `sd_out_*.png`.
 
 ## SD1 plan (high level)
 
-1) Pick an SD1 distilled variant (LCM/Turbo-style) to keep steps ~4–8.
+1) Pick an SD1 distilled variant (LCM/Turbo-style) to keep steps ~4-8.
 2) Export components to ONNX (text encoder, UNet, VAE decoder).
 3) Quantize mostly UNet (INT8) + keep VAE in FP16/BF16.
-4) Run inference via a native runtime with NNAPI; fall back to CPU if NNAPI can’t compile a node.
+4) Run inference via a native runtime with NNAPI; fall back to CPU if NNAPI can't compile a node.
 5) Ship the ONNX files in-app (or as offline downloadable packs).
 
 ## V2 notes (2026-02-12)
