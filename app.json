@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "staticplay-sd1-mobile-v2",
+    "slug": "staticplay-sd1-mobile-v2",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "plugins": ["./plugins/with-ort-native"],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.staticplaysd1mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.staticplaysd1mobile.v2"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
